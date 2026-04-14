@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, request, render_template_string, make_response
 import psycopg2
 import os
-from fpdf import FPDF # Necesitas instalar fpdf2
+from fpdf import FPDF 
 
 app = Flask(__name__)
 
@@ -128,7 +128,7 @@ def generar_pdf():
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Reutilizamos la lógica de búsqueda para el PDF
+    # Buscamos los datos
     sql = """
         SELECT a.nombre_completo, a.carnet, c.nombre_curso, i.estado_certificacion
         FROM inscripciones i
@@ -142,35 +142,42 @@ def generar_pdf():
     filas = cur.fetchall()
     conn.close()
 
-    # Creación del PDF
+    # Creación del PDF con manejo de caracteres latinos
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
+    
+    # Usamos 'Helvetica' o 'Arial' que son estándar
+    pdf.set_font("Helvetica", "B", 16)
     pdf.cell(190, 10, "REPORTE DE INSCRITOS - UPEA", ln=True, align='C')
-    pdf.set_font("Arial", "", 10)
-    pdf.cell(190, 10, f"Filtro aplicado: {query}", ln=True, align='C')
+    
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(190, 10, f"Filtro: {query}", ln=True, align='C')
     pdf.ln(5)
 
-    # Encabezado de tabla
+    # Encabezado con colores
     pdf.set_fill_color(26, 115, 232)
     pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Arial", "B", 10)
-    pdf.cell(80, 10, " NOMBRE COMPLETO", 1, 0, 'L', True)
-    pdf.cell(30, 10, " CI", 1, 0, 'L', True)
-    pdf.cell(50, 10, " CURSO", 1, 0, 'L', True)
-    pdf.cell(30, 10, " ESTADO", 1, 1, 'L', True)
+    pdf.cell(90, 10, " NOMBRE", 1, 0, 'C', True)
+    pdf.cell(30, 10, " CI", 1, 0, 'C', True)
+    pdf.cell(70, 10, " ESTADO", 1, 1, 'C', True)
 
-    # Filas de datos
+    # Datos (Usamos encode-replace para evitar que las tildes rompan el PDF)
     pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", "", 9)
+    pdf.set_font("Helvetica", "", 9)
     for r in filas:
-        pdf.cell(80, 8, str(r[0])[:40], 1)
-        pdf.cell(30, 8, str(r[1]), 1)
-        pdf.cell(50, 8, str(r[2])[:25], 1)
-        pdf.cell(30, 8, str(r[3]), 1, 1)
+        # Esto limpia caracteres raros que Render no pueda procesar
+        nombre = str(r[0]).encode('latin-1', 'replace').decode('latin-1')
+        ci = str(r[1]).encode('latin-1', 'replace').decode('latin-1')
+        estado = str(r[3]).encode('latin-1', 'replace').decode('latin-1')
+        
+        pdf.cell(90, 8, nombre[:45], 1)
+        pdf.cell(30, 8, ci, 1)
+        pdf.cell(70, 8, estado, 1, 1)
 
-    response = make_response(pdf.output(dest='S'))
-    response.headers.set('Content-Disposition', 'attachment', filename='reporte_upea.pdf')
+    # Generar salida
+    output = pdf.output(dest='S')
+    response = make_response(output)
+    response.headers.set('Content-Disposition', 'attachment', filename='reporte.pdf')
     response.headers.set('Content-Type', 'application/pdf')
     return response
 
