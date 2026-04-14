@@ -6,6 +6,9 @@ from io import StringIO
 
 app = Flask(__name__)
 
+# Configura aquí tu PIN de seguridad (Cámbialo por el que quieras)
+ADMIN_PIN = "1375" 
+
 DATABASE_URL = "postgresql://neondb_owner:npg_ucDUbfEr29Bn@ep-small-base-ahys4mod-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
 def get_db_connection():
@@ -22,50 +25,50 @@ HTML_APP = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel UPEA - Gestión Académica</title>
+    <title>Panel Privado UPEA</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; padding: 20px; margin: 0; }
-        .container { max-width: 800px; margin: auto; }
-        .card { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; padding: 20px; margin: 0; }
+        .container { max-width: 900px; margin: auto; }
+        .card { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }
         h1 { color: #1a73e8; text-align: center; margin-bottom: 20px; }
         
         .search-box { display: flex; gap: 10px; margin-bottom: 10px; }
-        input { flex: 1; padding: 15px; border: 2px solid #eee; border-radius: 10px; font-size: 16px; outline: none; }
+        input { flex: 1; padding: 15px; border: 2px solid #e0e0e0; border-radius: 10px; font-size: 16px; outline: none; }
         input:focus { border-color: #1a73e8; }
         
-        .btn { padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; color: white; }
+        .btn { padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; color: white; transition: 0.3s; }
         .btn-primary { background: #1a73e8; }
         .btn-secondary { background: #5f6368; width: 100%; margin-top: 10px; }
         .btn-excel { background: #1d6f42; margin-bottom: 15px; }
         
-        .course-chip { background: #fbbc04; color: #3c4043; padding: 10px; border-radius: 8px; margin: 5px; cursor: pointer; display: inline-block; font-size: 14px; font-weight: bold; }
-        .course-chip:hover { background: #f7a600; }
+        #seccion-cursos { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; max-height: 300px; overflow-y: auto; padding: 10px; }
+        .course-chip { background: #fff; border: 2px solid #fbbc04; color: #3c4043; padding: 12px; border-radius: 10px; cursor: pointer; text-align: center; font-size: 13px; font-weight: bold; transition: 0.2s; }
+        .course-chip:hover { background: #fbbc04; transform: translateY(-2px); }
         
-        .result-item { border-left: 6px solid #1a73e8; padding: 15px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
+        .result-item { border-left: 6px solid #1a73e8; padding: 15px; display: flex; justify-content: space-between; align-items: center; }
         .tag { background: #e8f0fe; color: #1a73e8; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; }
         .tag-estado { background: #fff3cd; color: #856404; text-transform: uppercase; }
         
-        .btn-status { padding: 8px 12px; border-radius: 6px; font-size: 12px; }
+        .btn-status { padding: 8px 15px; border-radius: 6px; font-size: 11px; text-transform: uppercase; border: none; cursor: pointer; color: white; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="card">
-            <h1>🎓 Gestión UPEA</h1>
+            <h1>🎓 Gestión de Cursos UPEA</h1>
             <div class="search-box">
                 <input type="text" id="busqueda" placeholder="Buscar por Nombre o CI...">
                 <button class="btn btn-primary" onclick="buscar()">🔍</button>
             </div>
-            <button class="btn btn-secondary" onclick="listarCursos()">📚 VER TODOS LOS CURSOS</button>
-        </div>
-
-        <div id="seccion-cursos" class="card" style="display:none;">
-            <h3>Seleccione un curso:</h3>
-            <div id="lista-cursos-chips"></div>
+            <button id="btn-lista-maestra" class="btn btn-secondary" onclick="toggleCursos()">📚 MOSTRAR LISTA DE CURSOS</button>
+            
+            <div id="wrapper-cursos" style="display:none; margin-top:15px;">
+                <div id="seccion-cursos"></div>
+            </div>
         </div>
 
         <div id="contenedor-reporte" style="text-align: right; display: none;">
-            <button class="btn btn-excel" onclick="descargarExcel()">📊 Descargar Tabla para Excel</button>
+            <button class="btn btn-excel" onclick="descargarExcel()">📊 Descargar este Curso para Excel</button>
         </div>
 
         <div id="resultados"></div>
@@ -74,39 +77,72 @@ HTML_APP = """
     <script>
         let filtroActual = "";
 
+        function toggleCursos() {
+            let wrapper = document.getElementById('wrapper-cursos');
+            let btn = document.getElementById('btn-lista-maestra');
+            
+            if(wrapper.style.display === "none") {
+                wrapper.style.display = "block";
+                btn.innerText = "🔼 ESCONDER LISTA DE CURSOS";
+                listarCursos();
+            } else {
+                wrapper.style.display = "none";
+                btn.innerText = "📚 MOSTRAR LISTA DE CURSOS";
+            }
+        }
+
+        function listarCursos() {
+            let listaDiv = document.getElementById('seccion-cursos');
+            listaDiv.innerHTML = "Cargando...";
+            fetch('/cursos_lista')
+                .then(res => res.json())
+                .then(data => {
+                    listaDiv.innerHTML = "";
+                    data.forEach(c => {
+                        let chip = document.createElement('div');
+                        chip.className = 'course-chip';
+                        chip.innerText = c;
+                        chip.onclick = () => {
+                            buscar(c);
+                            document.getElementById('wrapper-cursos').style.display = "none";
+                            document.getElementById('btn-lista-maestra').innerText = "📚 MOSTRAR LISTA DE CURSOS";
+                        };
+                        listaDiv.appendChild(chip);
+                    });
+                });
+        }
+
         function buscar(filtroExacto = false) {
             let texto = filtroExacto ? filtroExacto : document.getElementById('busqueda').value;
             filtroActual = texto;
-            
             let divRes = document.getElementById('resultados');
             let divRepo = document.getElementById('contenedor-reporte');
-            divRes.innerHTML = "<p style='text-align:center'>Cargando datos...</p>";
+            divRes.innerHTML = "<p style='text-align:center'>Obteniendo alumnos...</p>";
 
-            // Si es filtro exacto (de un chip), usamos un parámetro extra
             let url = `/buscar?q=${encodeURIComponent(texto)}${filtroExacto ? '&exacto=true' : ''}`;
 
             fetch(url)
                 .then(res => res.json())
                 .then(data => {
                     if(data.length === 0) {
-                        divRes.innerHTML = "<div class='card'><p style='text-align:center'>❌ Sin resultados para esta búsqueda</p></div>";
+                        divRes.innerHTML = "<div class='card'><p style='text-align:center'>❌ No hay inscritos</p></div>";
                         divRepo.style.display = "none";
                         return;
                     }
                     divRepo.style.display = "block";
-                    let html = "";
+                    let html = `<h3>Resultados para: ${texto}</h3>`;
                     data.forEach(alum => {
                         let esSec = alum.estado === 'secretaria';
                         html += `
                             <div class="card result-item">
                                 <div>
                                     <div style="font-weight:bold;">👤 ${alum.nombre}</div>
-                                    <div style="font-size:13px; color:#555;">🆔 CI: ${alum.carnet} | 📞 ${alum.celular}</div>
+                                    <div style="font-size:12px; color:#666;">🆔 CI: ${alum.carnet}</div>
                                     <span class="tag">${alum.curso}</span>
-                                    <span class="tag tag-estado">📍 ${alum.estado}</span>
+                                    <span class="tag tag-estado">${alum.estado}</span>
                                 </div>
-                                <button class="btn btn-status" style="background:${esSec ? '#28a745' : '#f39c12'}" 
-                                        onclick="cambiarEstado('${alum.carnet}', '${esSec ? 'enviado' : 'secretaria'}')">
+                                <button class="btn-status" style="background:${esSec ? '#28a745' : '#f39c12'}" 
+                                        onclick="intentarCambio('${alum.carnet}', '${esSec ? 'enviado' : 'secretaria'}')">
                                     ${esSec ? 'Enviar' : 'Revertir'}
                                 </button>
                             </div>`;
@@ -115,28 +151,23 @@ HTML_APP = """
                 });
         }
 
-        function listarCursos() {
-            let divCursos = document.getElementById('seccion-cursos');
-            let listaChips = document.getElementById('lista-cursos-chips');
-            divCursos.style.display = "block";
-            listaChips.innerHTML = "Cargando cursos...";
+        function intentarCambio(carnet, nuevoEstado) {
+            let pin = prompt("🔐 Ingrese el PIN de administrador para cambiar el estado:");
+            if(pin === null) return;
 
-            fetch('/cursos_lista')
-                .then(res => res.json())
-                .then(data => {
-                    listaChips.innerHTML = "";
-                    data.forEach(c => {
-                        listaChips.innerHTML += `<div class="course-chip" onclick="buscar('${c}')">${c}</div>`;
-                    });
-                });
-        }
-
-        function cambiarEstado(carnet, nuevoEstado) {
             fetch('/actualizar_estado', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({carnet: carnet, estado: nuevoEstado})
-            }).then(() => buscar(filtroActual));
+                body: JSON.stringify({carnet: carnet, estado: nuevoEstado, pin: pin})
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    buscar(filtroActual);
+                } else {
+                    alert("❌ PIN Incorrecto o error de acceso.");
+                }
+            });
         }
 
         function descargarExcel() {
@@ -167,24 +198,17 @@ def buscar_alumno():
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Si viene de un chip de curso, la búsqueda es exacta para no mezclar versiones
     if es_exacto:
-        sql = """
-            SELECT a.nombre_completo, a.carnet, a.celular, c.nombre_curso, COALESCE(i.estado_certificacion, 'secretaria')
-            FROM inscripciones i JOIN alumnos a ON i.alumno_id = a.id JOIN cursos c ON i.curso_id = c.id
-            WHERE c.nombre_curso = %s
-            ORDER BY a.nombre_completo ASC
-        """
+        sql = """SELECT a.nombre_completo, a.carnet, a.celular, c.nombre_curso, COALESCE(i.estado_certificacion, 'secretaria')
+                 FROM inscripciones i JOIN alumnos a ON i.alumno_id = a.id JOIN cursos c ON i.curso_id = c.id
+                 WHERE c.nombre_curso = %s ORDER BY a.nombre_completo ASC"""
         cur.execute(sql, (query,))
     else:
-        sql = """
-            SELECT a.nombre_completo, a.carnet, a.celular, c.nombre_curso, COALESCE(i.estado_certificacion, 'secretaria')
-            FROM inscripciones i JOIN alumnos a ON i.alumno_id = a.id JOIN cursos c ON i.curso_id = c.id
-            WHERE a.nombre_completo ILIKE %s OR a.carnet ILIKE %s OR c.nombre_curso ILIKE %s
-            ORDER BY a.nombre_completo ASC LIMIT 100
-        """
+        sql = """SELECT a.nombre_completo, a.carnet, a.celular, c.nombre_curso, COALESCE(i.estado_certificacion, 'secretaria')
+                 FROM inscripciones i JOIN alumnos a ON i.alumno_id = a.id JOIN cursos c ON i.curso_id = c.id
+                 WHERE a.nombre_completo ILIKE %s OR a.carnet ILIKE %s ORDER BY a.nombre_completo ASC LIMIT 100"""
         p = f"%{query}%"
-        cur.execute(sql, (p, p, p))
+        cur.execute(sql, (p, p))
         
     datos = cur.fetchall()
     conn.close()
@@ -193,6 +217,10 @@ def buscar_alumno():
 @app.route('/actualizar_estado', methods=['POST'])
 def actualizar_estado():
     data = request.json
+    # Verificación del PIN de seguridad
+    if data.get('pin') != ADMIN_PIN:
+        return jsonify({"status": "error", "message": "PIN incorrecto"}), 403
+
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("UPDATE inscripciones SET estado_certificacion = %s WHERE alumno_id = (SELECT id FROM alumnos WHERE carnet = %s)", 
@@ -206,13 +234,10 @@ def generar_excel():
     query = request.args.get('q', '').strip()
     conn = get_db_connection()
     cur = conn.cursor()
-    # En el excel siempre buscamos exacto o parecido según lo que el usuario esté viendo
-    sql = """
-        SELECT a.nombre_completo, a.carnet, c.nombre_curso, COALESCE(i.estado_certificacion, 'secretaria')
-        FROM inscripciones i JOIN alumnos a ON i.alumno_id = a.id JOIN cursos c ON i.curso_id = c.id
-        WHERE c.nombre_curso = %s OR a.nombre_completo ILIKE %s OR a.carnet ILIKE %s
-        ORDER BY c.nombre_curso, a.nombre_completo ASC
-    """
+    sql = """SELECT a.nombre_completo, a.carnet, c.nombre_curso, COALESCE(i.estado_certificacion, 'secretaria')
+             FROM inscripciones i JOIN alumnos a ON i.alumno_id = a.id JOIN cursos c ON i.curso_id = c.id
+             WHERE c.nombre_curso = %s OR a.nombre_completo ILIKE %s OR a.carnet ILIKE %s
+             ORDER BY c.nombre_curso, a.nombre_completo ASC"""
     p = f"%{query}%"
     cur.execute(sql, (query, p, p))
     filas = cur.fetchall()
@@ -220,14 +245,13 @@ def generar_excel():
 
     si = StringIO()
     cw = csv.writer(si)
-    # Tabla dividida en 3 columnas principales + CI
     cw.writerow(['NOMBRE DEL ALUMNO', 'CARNET DE IDENTIDAD', 'NOMBRE DEL CURSO', 'ESTADO ACTUAL'])
     for r in filas:
         cw.writerow([r[0], r[1], r[2], r[3]])
 
     output = make_response(si.getvalue())
     output.headers["Content-Disposition"] = f"attachment; filename=Reporte_UPEA.csv"
-    output.headers["Content-type"] = "text/csv; charset=utf-8"
+    output.headers["Content-type"] = "text/csv"
     return output
 
 if __name__ == '__main__':
