@@ -127,61 +127,79 @@ def generar_pdf():
     try:
         query = request.args.get('q', '').strip()
         conn = get_db_connection()
+        if not conn:
+            return "Error de conexión a la base de datos", 500
+            
         cur = conn.cursor()
         
-        # Buscamos los datos exactos que ves en pantalla
+        # SQL: Buscamos por nombre, CI o nombre del curso
         sql = """
             SELECT a.nombre_completo, a.carnet, c.nombre_curso, 
                    COALESCE(i.estado_certificacion, 'secretaria')
             FROM inscripciones i
             JOIN alumnos a ON i.alumno_id = a.id
             JOIN cursos c ON i.curso_id = c.id
-            WHERE a.nombre_completo ILIKE %s OR a.carnet ILIKE %s OR c.nombre_curso ILIKE %s
-            ORDER BY a.nombre_completo ASC
+            WHERE a.nombre_completo ILIKE %s 
+               OR a.carnet ILIKE %s 
+               OR c.nombre_curso ILIKE %s
+            ORDER BY c.nombre_curso, a.nombre_completo ASC
         """
         param = f"%{query}%"
         cur.execute(sql, (param, param, param))
         filas = cur.fetchall()
         conn.close()
 
-        # Usamos FPDF con configuración básica para evitar errores de servidor
+        # Configuración del PDF
         pdf = FPDF()
         pdf.add_page()
-        pdf.set_font("Arial", "B", 16)
-        pdf.cell(190, 10, "REPORTE UPEA", ln=True, align='C')
+        pdf.set_auto_page_break(auto=True, margin=15)
+        
+        # Título Principal
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.cell(190, 10, "REPORTE DE INSCRITOS - UPEA", ln=True, align='C')
+        
+        # Subtítulo con el filtro usado
+        pdf.set_font("Helvetica", "I", 10)
+        pdf.cell(190, 7, f"Filtro aplicado: {query}", ln=True, align='C')
         pdf.ln(5)
 
-        # Encabezado simple
-        pdf.set_font("Arial", "B", 10)
-        pdf.cell(90, 10, "Nombre", 1)
-        pdf.cell(40, 10, "CI", 1)
-        pdf.cell(60, 10, "Estado", 1)
-        pdf.ln()
+        # Encabezado de la Tabla (Colores institucionales)
+        pdf.set_fill_color(26, 115, 232) # Azul
+        pdf.set_text_color(255, 255, 255) # Blanco
+        pdf.set_font("Helvetica", "B", 10)
+        
+        pdf.cell(80, 10, " NOMBRE COMPLETO", 1, 0, 'L', True)
+        pdf.cell(30, 10, " CI", 1, 0, 'C', True)
+        pdf.cell(50, 10, " CURSO", 1, 0, 'L', True)
+        pdf.cell(30, 10, " ESTADO", 1, 1, 'C', True)
 
-        # Filas de datos con limpieza de texto
-        pdf.set_font("Arial", "", 9)
+        # Cuerpo de la Tabla
+        pdf.set_text_color(0, 0, 0) # Volver a negro
+        pdf.set_font("Helvetica", "", 9)
+        
         for r in filas:
-            # .encode('ascii', 'ignore') elimina tildes y Ñ momentáneamente
-            # para probar si eso es lo que causa el error 502
-            nombre = str(r[0]).encode('ascii', 'ignore').decode('ascii')
-            ci = str(r[1]).encode('ascii', 'ignore').decode('ascii')
-            estado = str(r[3]).encode('ascii', 'ignore').decode('ascii')
+            # Limpieza de caracteres para evitar error 502 (tildes y Ñ)
+            nombre = str(r[0]).encode('latin-1', 'replace').decode('latin-1')
+            ci = str(r[1]).encode('latin-1', 'replace').decode('latin-1')
+            curso = str(r[2]).encode('latin-1', 'replace').decode('latin-1')
+            estado = str(r[3]).encode('latin-1', 'replace').decode('latin-1')
             
-            pdf.cell(90, 8, nombre[:40], 1)
-            pdf.cell(40, 8, ci, 1)
-            pdf.cell(60, 8, estado, 1)
-            pdf.ln()
+            # Dibujar celdas (usamos MultiCell si el nombre es muy largo, o truncamos)
+            pdf.cell(80, 8, nombre[:40], 1)
+            pdf.cell(30, 8, ci, 1, 0, 'C')
+            pdf.cell(50, 8, curso[:25], 1)
+            pdf.cell(30, 8, estado.upper(), 1, 1, 'C')
 
+        # Generar la respuesta del archivo
         response = make_response(pdf.output(dest='S'))
-        response.headers.set('Content-Disposition', 'attachment', filename='reporte.pdf')
+        response.headers.set('Content-Disposition', 'attachment', filename=f'reporte_upea.pdf')
         response.headers.set('Content-Type', 'application/pdf')
         return response
 
     except Exception as e:
-        # Esto nos dirá el error real en los logs de Render
-        print(f"ERROR EN PDF: {e}")
-        return str(e), 500
-
+        print(f"Error crítico en PDF: {e}")
+        return f"Error al generar reporte: {str(e)}", 500
+    
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
