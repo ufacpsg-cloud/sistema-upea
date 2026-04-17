@@ -199,16 +199,22 @@ def buscar_alumno():
     cur = conn.cursor()
     
     if es_exacto:
+        # Búsqueda exacta por curso (cuando presionas un chip)
         sql = """SELECT a.nombre_completo, a.carnet, a.celular, c.nombre_curso, COALESCE(i.estado_certificacion, 'secretaria')
                  FROM inscripciones i JOIN alumnos a ON i.alumno_id = a.id JOIN cursos c ON i.curso_id = c.id
                  WHERE c.nombre_curso = %s ORDER BY a.nombre_completo ASC"""
         cur.execute(sql, (query,))
     else:
+        # Búsqueda general: Nombre, CI o CELULAR (Añadido nuevamente)
         sql = """SELECT a.nombre_completo, a.carnet, a.celular, c.nombre_curso, COALESCE(i.estado_certificacion, 'secretaria')
                  FROM inscripciones i JOIN alumnos a ON i.alumno_id = a.id JOIN cursos c ON i.curso_id = c.id
-                 WHERE a.nombre_completo ILIKE %s OR a.carnet ILIKE %s ORDER BY a.nombre_completo ASC LIMIT 100"""
+                 WHERE a.nombre_completo ILIKE %s 
+                    OR a.carnet ILIKE %s 
+                    OR a.celular ILIKE %s 
+                    OR c.nombre_curso ILIKE %s 
+                 ORDER BY a.nombre_completo ASC LIMIT 100"""
         p = f"%{query}%"
-        cur.execute(sql, (p, p))
+        cur.execute(sql, (p, p, p, p))
         
     datos = cur.fetchall()
     conn.close()
