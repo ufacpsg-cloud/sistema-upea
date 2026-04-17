@@ -137,7 +137,9 @@ HTML_APP = """
                             <div class="card result-item">
                                 <div>
                                     <div style="font-weight:bold;">👤 ${alum.nombre}</div>
-                                    <div style="font-size:12px; color:#666;">🆔 CI: ${alum.carnet}</div>
+                                    <div style="font-size:13px; color:#555; margin: 3px 0;">
+                                        🆔 CI: ${alum.carnet} | 📞 Celular: ${alum.celular}
+                                    </div>
                                     <span class="tag">${alum.curso}</span>
                                     <span class="tag tag-estado">${alum.estado}</span>
                                 </div>
