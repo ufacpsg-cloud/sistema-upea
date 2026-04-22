@@ -17,7 +17,7 @@ def get_db_connection():
         print(f"Error de conexión: {e}")
         return None
 
-# --- DISEÑO COMPLETO CON CURSOS, EXCEL Y NUEVA LÓGICA ---
+# --- DISEÑO COMPLETO ---
 HTML_APP = """
 <!DOCTYPE html>
 <html lang="es">
@@ -36,16 +36,13 @@ HTML_APP = """
         .btn-primary { background: #1a73e8; }
         .btn-secondary { background: #5f6368; width: 100%; margin-top: 10px; }
         .btn-excel { background: #1d6f42; margin-bottom: 10px; float: right; }
-        
         #seccion-cursos { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; max-height: 300px; overflow-y: auto; padding: 10px; }
         .course-chip { background: #fff; border: 2px solid #fbbc04; color: #3c4043; padding: 12px; border-radius: 10px; cursor: pointer; text-align: center; font-size: 13px; font-weight: bold; }
-        
         .result-item { border-left: 6px solid #1a73e8; padding: 15px; display: flex; justify-content: space-between; align-items: center; }
         .tag { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; display: inline-block; margin-top: 5px; }
         .tag-secretaria { background: #eee; color: #666; }
         .tag-enviado { background: #d4edda; color: #155724; }
         .tag-recogido { background: #cfe2ff; color: #084298; }
-        
         .btn-group { display: flex; flex-direction: column; gap: 5px; }
         .btn-status { padding: 8px 15px; border-radius: 6px; font-size: 11px; text-transform: uppercase; border: none; cursor: pointer; color: white; width: 160px; font-weight: bold; }
     </style>
@@ -63,11 +60,9 @@ HTML_APP = """
                 <div id="seccion-cursos"></div>
             </div>
         </div>
-
         <div id="cont-excel" style="display:none; overflow: hidden;">
             <button class="btn btn-excel" onclick="descargarExcel()">📊 Descargar Excel</button>
         </div>
-        
         <div id="resultados"></div>
     </div>
 
@@ -151,7 +146,7 @@ HTML_APP = """
                 body: JSON.stringify({carnet: carnet, estado: nuevoEstado, pin: pin})
             }).then(res => res.json()).then(data => {
                 if(data.status === 'success') buscar(filtroActual);
-                else alert("❌ PIN Incorrecto");
+                else alert("❌ " + (data.message || "Error de PIN"));
             });
         }
 
@@ -189,12 +184,26 @@ def buscar_alumno():
 def actualizar_estado():
     data = request.json
     nuevo = data.get('estado')
-    if (nuevo == 'enviado' or data.get('pin')) and data.get('pin') != ADMIN_PIN:
-        return jsonify({"status": "error"}), 403
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute("UPDATE inscripciones SET estado_certificacion = %s WHERE alumno_id = (SELECT id FROM alumnos WHERE carnet = %s)", (nuevo, data.get('carnet')))
-    conn.commit(); conn.close()
-    return jsonify({"status": "success"})
+    pin_ingresado = data.get('pin', '')
+
+    # REGLA: Solo pide PIN si el nuevo estado es 'enviado' 
+    # O si el nuevo estado es 'secretaria' PERO NO viene del botón "No Recogido"
+    # (El botón "No Recogido" envía pin vacío desde el frontend por diseño)
+    
+    if nuevo == 'enviado' or (nuevo == 'secretaria' and pin_ingresado != ''):
+        if pin_ingresado != ADMIN_PIN:
+            return jsonify({"status": "error", "message": "PIN incorrecto"}), 403
+
+    # Si pasa las reglas, actualizamos
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("UPDATE inscripciones SET estado_certificacion = %s WHERE alumno_id = (SELECT id FROM alumnos WHERE carnet = %s)", (nuevo, data.get('carnet')))
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/reporte/excel')
 def generar_excel():
