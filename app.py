@@ -1,10 +1,13 @@
 from flask import Flask, jsonify, request, render_template_string, make_response
 import psycopg2
 import os
+import csv
+from io import StringIO
 
 app = Flask(__name__)
 
-ADMIN_PIN = "1375" # Tu PIN de seguridad
+# PIN DE SEGURIDAD
+ADMIN_PIN = "1234" 
 
 DATABASE_URL = "postgresql://neondb_owner:npg_ucDUbfEr29Bn@ep-small-base-ahys4mod-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
@@ -15,7 +18,7 @@ def get_db_connection():
         print(f"Error de conexión: {e}")
         return None
 
-# --- DISEÑO CON BOTÓN DE REVERSIÓN ---
+# --- DISEÑO DE LA APP ---
 HTML_APP = """
 <!DOCTYPE html>
 <html lang="es">
@@ -91,12 +94,8 @@ HTML_APP = """
                 let html = "";
                 data.forEach(alum => {
                     let st = alum.estado;
-                    let proximo, btnColor, btnTxt, tagClass, requierePin;
                     
-                    if(st === 'secretaria') {
-                        proximo = 'enviado'; btnColor = '#28a745'; btnTxt = 'Marcar Enviado 🔐'; tagClass = 'tag-secretaria'; requierePin = true;
-                    } else if(st === 'enviado') {
-                        // AQUÍ AÑADIMOS EL BOTÓN DOBLE: Uno para avanzar y otro para retroceder
+                    if(st === 'enviado') {
                         html += `
                             <div class="card result-item">
                                 <div>
@@ -112,26 +111,28 @@ HTML_APP = """
                                     <button class="btn-status" style="background:#dc3545" onclick="cambiarEstado('${alum.carnet}', 'secretaria', true)">Regresar a Sec 🔐</button>
                                 </div>
                             </div>`;
-                        return; // Saltamos el resto para esta tarjeta
                     } else {
-                        proximo = 'secretaria'; btnColor = '#6c757d'; btnTxt = 'Reiniciar a Sec 🔐'; tagClass = 'tag-recogido'; requierePin = true;
-                    }
+                        let proximo = st === 'secretaria' ? 'enviado' : 'secretaria';
+                        let btnColor = st === 'secretaria' ? '#28a745' : '#6c757d';
+                        let btnTxt = st === 'secretaria' ? 'Marcar Enviado 🔐' : 'Reiniciar a Sec 🔐';
+                        let tagClass = st === 'secretaria' ? 'tag-secretaria' : 'tag-recogido';
 
-                    html += `
-                        <div class="card result-item">
-                            <div>
-                                <div style="font-weight:bold;">👤 ${alum.nombre}</div>
-                                <div style="font-size:12px; color:#666;">🆔 CI: ${alum.carnet} | 📞 ${alum.celular}</div>
-                                <div style="margin-top:5px;">
-                                    <span class="tag" style="background:#e8f0fe; color:#1a73e8;">${alum.curso}</span>
-                                    <span class="tag ${tagClass}">📍 ${st.toUpperCase()}</span>
+                        html += `
+                            <div class="card result-item">
+                                <div>
+                                    <div style="font-weight:bold;">👤 ${alum.nombre}</div>
+                                    <div style="font-size:12px; color:#666;">🆔 CI: ${alum.carnet} | 📞 ${alum.celular}</div>
+                                    <div style="margin-top:5px;">
+                                        <span class="tag" style="background:#e8f0fe; color:#1a73e8;">${alum.curso}</span>
+                                        <span class="tag ${tagClass}">📍 ${st.toUpperCase()}</span>
+                                    </div>
                                 </div>
-                            </div>
-                            <button class="btn-status" style="background:${btnColor}" 
-                                    onclick="cambiarEstado('${alum.carnet}', '${proximo}', ${requierePin})">
-                                ${btnTxt}
-                            </button>
-                        </div>`;
+                                <button class="btn-status" style="background:${btnColor}" 
+                                        onclick="cambiarEstado('${alum.carnet}', '${proximo}', true)">
+                                    ${btnTxt}
+                                </button>
+                            </div>`;
+                    }
                 });
                 divRes.innerHTML = html || "<p style='text-align:center'>Sin resultados</p>";
             });
@@ -140,7 +141,7 @@ HTML_APP = """
         function cambiarEstado(carnet, nuevoEstado, requierePin) {
             let pin = "";
             if(requierePin) {
-                pin = prompt("🔐 Ingrese PIN para cambiar a un estado administrativo:");
+                pin = prompt("🔐 Ingrese PIN administrativo:");
                 if(!pin) return;
             }
             fetch('/actualizar_estado', {
@@ -149,7 +150,7 @@ HTML_APP = """
                 body: JSON.stringify({carnet: carnet, estado: nuevoEstado, pin: pin})
             }).then(res => res.json()).then(data => {
                 if(data.status === 'success') buscar(filtroActual);
-                else alert("❌ " + (data.message || "Error de PIN"));
+                else alert("❌ " + (data.message || "Error"));
             });
         }
     </script>
@@ -157,4 +158,46 @@ HTML_APP = """
 </html>
 """
 
-# ... (El resto de las rutas @app.route de Python se mantienen iguales a la versión anterior)
+@app.route('/')
+def home():
+    return render_template_string(HTML_APP)
+
+@app.route('/cursos_lista')
+def cursos_lista():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT nombre_curso FROM cursos ORDER BY nombre_curso ASC")
+    cursos = [r[0] for r in cur.fetchall()]
+    conn.close()
+    return jsonify(cursos)
+
+@app.route('/buscar')
+def buscar_alumno():
+    query = request.args.get('q', '').strip()
+    es_exacto = request.args.get('exacto', 'false') == 'true'
+    conn = get_db_connection()
+    cur = conn.cursor()
+    if es_exacto:
+        sql = "SELECT a.nombre_completo, a.carnet, a.celular, c.nombre_curso, COALESCE(i.estado_certificacion, 'secretaria') FROM inscripciones i JOIN alumnos a ON i.alumno_id = a.id JOIN cursos c ON i.curso_id = c.id WHERE c.nombre_curso = %s ORDER BY a.nombre_completo ASC"
+        cur.execute(sql, (query,))
+    else:
+        sql = "SELECT a.nombre_completo, a.carnet, a.celular, c.nombre_curso, COALESCE(i.estado_certificacion, 'secretaria') FROM inscripciones i JOIN alumnos a ON i.alumno_id = a.id JOIN cursos c ON i.curso_id = c.id WHERE a.nombre_completo ILIKE %s OR a.carnet ILIKE %s OR a.celular ILIKE %s OR c.nombre_curso ILIKE %s ORDER BY a.nombre_completo ASC LIMIT 100"
+        p = f"%{query}%"; cur.execute(sql, (p, p, p, p))
+    datos = cur.fetchall()
+    conn.close()
+    return jsonify([{"nombre": r[0], "carnet": r[1], "celular": r[2], "curso": r[3], "estado": r[4]} for r in datos])
+
+@app.route('/actualizar_estado', methods=['POST'])
+def actualizar_estado():
+    data = request.json
+    nuevo_estado = data.get('estado')
+    if nuevo_estado != 'recogido' and data.get('pin') != ADMIN_PIN:
+        return jsonify({"status": "error", "message": "PIN incorrecto"}), 403
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute("UPDATE inscripciones SET estado_certificacion = %s WHERE alumno_id = (SELECT id FROM alumnos WHERE carnet = %s)", (nuevo_estado, data.get('carnet')))
+    conn.commit(); conn.close()
+    return jsonify({"status": "success"})
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
