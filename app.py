@@ -6,7 +6,7 @@ from io import StringIO
 
 app = Flask(__name__)
 
-ADMIN_PIN = "1234" # Tu PIN de seguridad para estados administrativos
+ADMIN_PIN = "1234" # Tu PIN de seguridad
 
 DATABASE_URL = "postgresql://neondb_owner:npg_ucDUbfEr29Bn@ep-small-base-ahys4mod-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
@@ -17,14 +17,14 @@ def get_db_connection():
         print(f"Error de conexión: {e}")
         return None
 
-# --- DISEÑO CON SEGURIDAD DIFERENCIADA ---
+# --- DISEÑO ACTUALIZADO CON ETIQUETA "RECOGIDO" ---
 HTML_APP = """
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel Gestión UPEA</title>
+    <title>Panel Privado UPEA</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; padding: 20px; margin: 0; }
         .container { max-width: 900px; margin: auto; }
@@ -37,12 +37,16 @@ HTML_APP = """
         .btn-secondary { background: #5f6368; width: 100%; margin-top: 10px; }
         #seccion-cursos { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; max-height: 300px; overflow-y: auto; padding: 10px; }
         .course-chip { background: #fff; border: 2px solid #fbbc04; color: #3c4043; padding: 12px; border-radius: 10px; cursor: pointer; text-align: center; font-size: 13px; font-weight: bold; }
+        
         .result-item { border-left: 6px solid #1a73e8; padding: 15px; display: flex; justify-content: space-between; align-items: center; }
+        
+        /* COLORES DE ETIQUETAS */
         .tag { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; display: inline-block; margin-top: 5px; }
         .tag-secretaria { background: #fff3cd; color: #856404; }
         .tag-enviado { background: #d4edda; color: #155724; }
         .tag-recogido { background: #cfe2ff; color: #084298; }
-        .btn-status { padding: 8px 15px; border-radius: 6px; font-size: 11px; text-transform: uppercase; border: none; cursor: pointer; color: white; width: 150px; }
+        
+        .btn-status { padding: 8px 15px; border-radius: 6px; font-size: 11px; text-transform: uppercase; border: none; cursor: pointer; color: white; width: 140px; }
     </style>
 </head>
 <body>
@@ -57,6 +61,9 @@ HTML_APP = """
             <div id="wrapper-cursos" style="display:none; margin-top:15px;">
                 <div id="seccion-cursos"></div>
             </div>
+        </div>
+        <div id="contenedor-reporte" style="text-align: right; display: none;">
+            <button class="btn" style="background:#1d6f42" onclick="descargarExcel()">📊 Descargar Excel</button>
         </div>
         <div id="resultados"></div>
     </div>
@@ -76,7 +83,8 @@ HTML_APP = """
                 listaDiv.innerHTML = "";
                 data.forEach(c => {
                     let chip = document.createElement('div');
-                    chip.className = 'course-chip'; chip.innerText = c;
+                    chip.className = 'course-chip';
+                    chip.innerText = c;
                     chip.onclick = () => { buscar(c, true); document.getElementById('wrapper-cursos').style.display = "none"; };
                     listaDiv.appendChild(chip);
                 });
@@ -90,17 +98,19 @@ HTML_APP = """
             let url = `/buscar?q=${encodeURIComponent(texto)}${esExacto ? '&exacto=true' : ''}`;
 
             fetch(url).then(res => res.json()).then(data => {
+                document.getElementById('contenedor-reporte').style.display = data.length > 0 ? "block" : "none";
                 let html = "";
                 data.forEach(alum => {
                     let st = alum.estado;
-                    let proximo, btnColor, btnTxt, tagClass, requierePin;
+                    // Lógica de rotación: Secretaria -> Enviado -> Recogido -> Secretaria
+                    let proximo, btnColor, btnTxt, tagClass;
                     
                     if(st === 'secretaria') {
-                        proximo = 'enviado'; btnColor = '#28a745'; btnTxt = 'Marcar Enviado 🔐'; tagClass = 'tag-secretaria'; requierePin = true;
+                        proximo = 'enviado'; btnColor = '#28a745'; btnTxt = 'Marcar Enviado'; tagClass = 'tag-secretaria';
                     } else if(st === 'enviado') {
-                        proximo = 'recogido'; btnColor = '#0d6efd'; btnTxt = 'Entregado (Libre)'; tagClass = 'tag-enviado'; requierePin = false;
+                        proximo = 'recogido'; btnColor = '#0d6efd'; btnTxt = 'Marcar Recogido'; tagClass = 'tag-enviado';
                     } else {
-                        proximo = 'secretaria'; btnColor = '#6c757d'; btnTxt = 'Reiniciar 🔐'; tagClass = 'tag-recogido'; requierePin = true;
+                        proximo = 'secretaria'; btnColor = '#6c757d'; btnTxt = 'Reiniciar'; tagClass = 'tag-recogido';
                     }
 
                     html += `
@@ -114,7 +124,7 @@ HTML_APP = """
                                 </div>
                             </div>
                             <button class="btn-status" style="background:${btnColor}" 
-                                    onclick="cambiarEstado('${alum.carnet}', '${proximo}', ${requierePin})">
+                                    onclick="intentarCambio('${alum.carnet}', '${proximo}')">
                                 ${btnTxt}
                             </button>
                         </div>`;
@@ -123,22 +133,20 @@ HTML_APP = """
             });
         }
 
-        function cambiarEstado(carnet, nuevoEstado, requierePin) {
-            let pin = "";
-            if(requierePin) {
-                pin = prompt("🔐 Este cambio requiere PIN de administrador:");
-                if(!pin) return;
-            }
-
+        function intentarCambio(carnet, nuevoEstado) {
+            let pin = prompt("🔐 PIN de seguridad:");
+            if(!pin) return;
             fetch('/actualizar_estado', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({carnet: carnet, estado: nuevoEstado, pin: pin})
             }).then(res => res.json()).then(data => {
                 if(data.status === 'success') buscar(filtroActual);
-                else alert("❌ " + (data.message || "Error"));
+                else alert("❌ Error");
             });
         }
+
+        function descargarExcel() { window.location.href = `/reporte/excel?q=${encodeURIComponent(filtroActual)}`; }
     </script>
 </body>
 </html>
@@ -171,17 +179,25 @@ def buscar_alumno():
 @app.route('/actualizar_estado', methods=['POST'])
 def actualizar_estado():
     data = request.json
-    nuevo_estado = data.get('estado')
-    
-    # SOLO pide PIN si el nuevo estado NO es 'recogido'
-    if nuevo_estado != 'recogido':
-        if data.get('pin') != ADMIN_PIN:
-            return jsonify({"status": "error", "message": "PIN administrativo incorrecto"}), 403
-
+    if data.get('pin') != ADMIN_PIN: return jsonify({"status": "error"}), 403
     conn = get_db_connection(); cur = conn.cursor()
-    cur.execute("UPDATE inscripciones SET estado_certificacion = %s WHERE alumno_id = (SELECT id FROM alumnos WHERE carnet = %s)", (nuevo_estado, data.get('carnet')))
+    cur.execute("UPDATE inscripciones SET estado_certificacion = %s WHERE alumno_id = (SELECT id FROM alumnos WHERE carnet = %s)", (data.get('estado'), data.get('carnet')))
     conn.commit(); conn.close()
     return jsonify({"status": "success"})
+
+@app.route('/reporte/excel')
+def generar_excel():
+    query = request.args.get('q', '').strip()
+    conn = get_db_connection(); cur = conn.cursor()
+    sql = "SELECT a.nombre_completo, a.carnet, a.celular, c.nombre_curso, COALESCE(i.estado_certificacion, 'secretaria') FROM inscripciones i JOIN alumnos a ON i.alumno_id = a.id JOIN cursos c ON i.curso_id = c.id WHERE c.nombre_curso = %s OR a.nombre_completo ILIKE %s OR a.carnet ILIKE %s OR a.celular ILIKE %s ORDER BY c.nombre_curso, a.nombre_completo ASC"
+    p = f"%{query}%"; cur.execute(sql, (query, p, p, p))
+    filas = cur.fetchall(); conn.close()
+    si = StringIO(); cw = csv.writer(si)
+    cw.writerow(['ALUMNO', 'CI', 'CELULAR', 'CURSO', 'ESTADO'])
+    for r in filas: cw.writerow([r[0], r[1], r[2], r[3], r[4]])
+    output = make_response(si.getvalue())
+    output.headers["Content-Disposition"] = "attachment; filename=Reporte_UPEA.csv"
+    output.headers["Content-type"] = "text/csv"; return output
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
