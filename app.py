@@ -7,7 +7,7 @@ from io import StringIO
 app = Flask(__name__)
 
 # PIN DE SEGURIDAD
-ADMIN_PIN = "1234" 
+ADMIN_PIN = "1375" 
 
 DATABASE_URL = "postgresql://neondb_owner:npg_ucDUbfEr29Bn@ep-small-base-ahys4mod-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
