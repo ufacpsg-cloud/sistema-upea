@@ -135,21 +135,21 @@ HTML_APP = """
             });
         }
 
-        function cambiarEstado(carnet, curso, nuevoEstado, requierePin) {
-            let pin = "";
-            if(requierePin) {
-                pin = prompt("🔐 PIN administrativo:");
-                if(!pin) return;
-            }
-            fetch('/actualizar_estado', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({carnet: carnet, curso: curso, estado: nuevoEstado, pin: pin})
-            }).then(res => res.json()).then(data => {
-                if(data.status === 'success') buscar(filtroActual);
-                else alert("❌ " + (data.message || "Error"));
-            });
-        }
+        function cambiarEstado(carnet, curso, nuevoEstado, requierePin, nombreAlumno) {
+    let pin = "";
+    if(requierePin) {
+        pin = prompt("🔐 PIN administrativo:");
+        if(!pin) return;
+    }
+    fetch('/actualizar_estado', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({carnet: carnet, nombre: nombreAlumno, curso: curso, estado: nuevoEstado, pin: pin})
+    }).then(res => res.json()).then(data => {
+        if(data.status === 'success') buscar(filtroActual);
+        else alert("❌ " + (data.message || "Error"));
+    });
+}
 
         function descargarExcel() { window.location.href = `/reporte/excel?q=${encodeURIComponent(filtroActual)}`; }
     </script>
@@ -186,33 +186,48 @@ def actualizar_estado():
     data = request.json
     nuevo = data.get('estado')
     curso_nombre = data.get('curso', '').strip()
-    carnet_alumno = data.get('carnet', '').strip()
+    carnet_alumno = data.get('carnet')
+    nombre_alumno = data.get('nombre', '').strip() # Recibimos también el nombre por si acaso
     pin_ingresado = data.get('pin', '')
 
     if nuevo == 'enviado' or (nuevo == 'secretaria' and pin_ingresado != ''):
         if pin_ingresado != ADMIN_PIN:
             return jsonify({"status": "error", "message": "PIN incorrecto"}), 403
 
+    # Limpiamos el carnet si viene como texto vacío o string "null"
+    if carnet_alumno:
+        carnet_alumno = str(carnet_alumno).strip()
+        if carnet_alumno.lower() in ['', 'none', 'null']:
+            carnet_alumno = None
+    else:
+        carnet_alumno = None
+
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         
-        sql = """
+        # LÓGICA DE BÚSQUEDA DEL ALUMNO ELESTICA:
+        # Si tiene carnet, busca por carnet. Si no tiene carnet (es NULL), busca por su nombre completo.
+        if carnet_alumno:
+            sql_alumno = "SELECT id FROM alumnos WHERE TRIM(carnet) ILIKE %s LIMIT 1"
+            param_alumno = carnet_alumno
+        else:
+            sql_alumno = "SELECT id FROM alumnos WHERE TRIM(nombre_completo) ILIKE %s LIMIT 1"
+            param_alumno = nombre_alumno
+
+        sql = f"""
             UPDATE inscripciones 
             SET estado_certificacion = %s 
-            WHERE alumno_id = (SELECT id FROM alumnos WHERE TRIM(carnet) ILIKE %s LIMIT 1)
+            WHERE alumno_id = ({sql_alumno})
               AND curso_id = (SELECT id FROM cursos WHERE TRIM(nombre_curso) ILIKE %s LIMIT 1)
         """
-        p_carnet = f"{carnet_alumno}"
-        p_curso = f"%{curso_nombre}%" 
         
-        cur.execute(sql, (nuevo, p_carnet, p_curso))
+        cur.execute(sql, (nuevo, param_alumno, f"%{curso_nombre}%"))
         conn.commit()
         conn.close()
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
-
 @app.route('/reporte/excel')
 def generar_excel():
     query = request.args.get('q', '').strip()
