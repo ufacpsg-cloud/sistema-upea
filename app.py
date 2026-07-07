@@ -185,8 +185,8 @@ def buscar_alumno():
 def actualizar_estado():
     data = request.json
     nuevo = data.get('estado')
-    curso_nombre = data.get('curso')
-    carnet_alumno = data.get('carnet')
+    curso_nombre = data.get('curso', '').strip()
+    carnet_alumno = data.get('carnet', '').strip()
     pin_ingresado = data.get('pin', '')
 
     if nuevo == 'enviado' or (nuevo == 'secretaria' and pin_ingresado != ''):
@@ -196,14 +196,17 @@ def actualizar_estado():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        # Filtramos por Alumno Y por Curso para no afectar otras inscripciones
+        
         sql = """
             UPDATE inscripciones 
             SET estado_certificacion = %s 
-            WHERE alumno_id = (SELECT id FROM alumnos WHERE carnet = %s)
-            AND curso_id = (SELECT id FROM cursos WHERE nombre_curso = %s)
+            WHERE alumno_id = (SELECT id FROM alumnos WHERE TRIM(carnet) ILIKE %s LIMIT 1)
+              AND curso_id = (SELECT id FROM cursos WHERE TRIM(nombre_curso) ILIKE %s LIMIT 1)
         """
-        cur.execute(sql, (nuevo, carnet_alumno, curso_nombre))
+        p_carnet = f"{carnet_alumno}"
+        p_curso = f"%{curso_nombre}%" 
+        
+        cur.execute(sql, (nuevo, p_carnet, p_curso))
         conn.commit()
         conn.close()
         return jsonify({"status": "success"})
