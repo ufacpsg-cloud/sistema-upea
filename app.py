@@ -99,27 +99,31 @@ HTML_APP = """
                 let html = "";
                 data.forEach(alum => {
                     let st = alum.estado;
-                    let cur = alum.curso; // Guardamos el curso específico
+                    let cur = alum.curso; 
                     let tagClass = "tag-" + st;
                     let btnRecogidoHTML = "";
                     let btnEnviadoHTML = "";
+                    
+                    // --- CORRECCIÓN AQUÍ: ESCAPAR COMILLAS Y CREAR LLAVES SEGURAS ---
+                    let nomEscapado = alum.nombre.replace(/'/g, "\\'");
+                    let ciSeguro = alum.carnet ? alum.carnet : "";
 
                     if (st === 'recogido') {
-                        btnRecogidoHTML = `<button class="btn-status" style="background:#dc3545" onclick="cambiarEstado('${alum.carnet}', '${cur}', 'secretaria', false)">❌ No Recogido</button>`;
+                        btnRecogidoHTML = `<button class="btn-status" style="background:#dc3545" onclick="cambiarEstado('${ciSeguro}', '${cur}', 'secretaria', false, '${nomEscapado}')">❌ No Recogido</button>`;
                         btnEnviadoHTML = `<button class="btn-status" style="background:#6c757d" disabled>Enviado 🔐</button>`;
                     } else if (st === 'enviado') {
-                        btnRecogidoHTML = `<button class="btn-status" style="background:#0d6efd" onclick="cambiarEstado('${alum.carnet}', '${cur}', 'recogido', false)">Recogido</button>`;
-                        btnEnviadoHTML = `<button class="btn-status" style="background:#f39c12" onclick="cambiarEstado('${alum.carnet}', '${cur}', 'secretaria', true)">Regresar a Sec 🔐</button>`;
+                        btnRecogidoHTML = `<button class="btn-status" style="background:#0d6efd" onclick="cambiarEstado('${ciSeguro}', '${cur}', 'recogido', false, '${nomEscapado}')">Recogido</button>`;
+                        btnEnviadoHTML = `<button class="btn-status" style="background:#f39c12" onclick="cambiarEstado('${ciSeguro}', '${cur}', 'secretaria', true, '${nomEscapado}')">Regresar a Sec 🔐</button>`;
                     } else {
-                        btnRecogidoHTML = `<button class="btn-status" style="background:#0d6efd" onclick="cambiarEstado('${alum.carnet}', '${cur}', 'recogido', false)">Recogido</button>`;
-                        btnEnviadoHTML = `<button class="btn-status" style="background:#28a745" onclick="cambiarEstado('${alum.carnet}', '${cur}', 'enviado', true)">Enviado 🔐</button>`;
+                        btnRecogidoHTML = `<button class="btn-status" style="background:#0d6efd" onclick="cambiarEstado('${ciSeguro}', '${cur}', 'recogido', false, '${nomEscapado}')">Recogido</button>`;
+                        btnEnviadoHTML = `<button class="btn-status" style="background:#28a745" onclick="cambiarEstado('${ciSeguro}', '${cur}', 'enviado', true, '${nomEscapado}')">Enviado 🔐</button>`;
                     }
 
                     html += `
                         <div class="card result-item">
                             <div>
                                 <div style="font-weight:bold;">👤 ${alum.nombre}</div>
-                                <div style="font-size:12px; color:#666;">🆔 CI: ${alum.carnet} | 📞 ${alum.celular}</div>
+                                <div style="font-size:12px; color:#666;">🆔 CI: ${alum.carnet || 'SIN CARNET'} | 📞 ${alum.celular || 'SIN CELULAR'}</div>
                                 <div style="margin-top:5px;">
                                     <span class="tag" style="background:#e8f0fe; color:#1a73e8;">${cur}</span>
                                     <span class="tag ${tagClass}">📍 ${st.toUpperCase()}</span>
@@ -136,20 +140,20 @@ HTML_APP = """
         }
 
         function cambiarEstado(carnet, curso, nuevoEstado, requierePin, nombreAlumno) {
-    let pin = "";
-    if(requierePin) {
-        pin = prompt("🔐 PIN administrativo:");
-        if(!pin) return;
-    }
-    fetch('/actualizar_estado', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({carnet: carnet, nombre: nombreAlumno, curso: curso, estado: nuevoEstado, pin: pin})
-    }).then(res => res.json()).then(data => {
-        if(data.status === 'success') buscar(filtroActual);
-        else alert("❌ " + (data.message || "Error"));
-    });
-}
+            let pin = "";
+            if(requierePin) {
+                pin = prompt("🔐 PIN administrativo:");
+                if(!pin) return;
+            }
+            fetch('/actualizar_estado', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({carnet: carnet, nombre: nombreAlumno, curso: curso, estado: nuevoEstado, pin: pin})
+            }).then(res => res.json()).then(data => {
+                if(data.status === 'success') buscar(filtroActual);
+                else alert("❌ " + (data.message || "Error"));
+            });
+        }
 
         function descargarExcel() { window.location.href = `/reporte/excel?q=${encodeURIComponent(filtroActual)}`; }
     </script>
@@ -187,14 +191,13 @@ def actualizar_estado():
     nuevo = data.get('estado')
     curso_nombre = data.get('curso', '').strip()
     carnet_alumno = data.get('carnet')
-    nombre_alumno = data.get('nombre', '').strip() # Recibimos también el nombre por si acaso
+    nombre_alumno = data.get('nombre', '').strip() 
     pin_ingresado = data.get('pin', '')
 
     if nuevo == 'enviado' or (nuevo == 'secretaria' and pin_ingresado != ''):
         if pin_ingresado != ADMIN_PIN:
             return jsonify({"status": "error", "message": "PIN incorrecto"}), 403
 
-    # Limpiamos el carnet si viene como texto vacío o string "null"
     if carnet_alumno:
         carnet_alumno = str(carnet_alumno).strip()
         if carnet_alumno.lower() in ['', 'none', 'null']:
@@ -206,8 +209,6 @@ def actualizar_estado():
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # LÓGICA DE BÚSQUEDA DEL ALUMNO ELESTICA:
-        # Si tiene carnet, busca por carnet. Si no tiene carnet (es NULL), busca por su nombre completo.
         if carnet_alumno:
             sql_alumno = "SELECT id FROM alumnos WHERE TRIM(carnet) ILIKE %s LIMIT 1"
             param_alumno = carnet_alumno
@@ -228,6 +229,7 @@ def actualizar_estado():
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route('/reporte/excel')
 def generar_excel():
     query = request.args.get('q', '').strip()
